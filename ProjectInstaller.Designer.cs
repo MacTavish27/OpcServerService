@@ -41,7 +41,8 @@
             // 
             this.serviceInstaller1.Description = "OPC Bridge Service for 3D OTS";
             this.serviceInstaller1.DisplayName = "OPC_Bridge Service";
-            this.serviceInstaller1.ServiceName = "Service1";
+            this.serviceInstaller1.ServiceName = "OPC Server Service";
+            this.serviceInstaller1.StartType = System.ServiceProcess.ServiceStartMode.Automatic;
             // 
             // ProjectInstaller
             // 

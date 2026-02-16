@@ -8,6 +8,7 @@ using Microsoft.Owin.Hosting;
 using Opc.Da;
 using Owin;
 using static opc_bridge.Services;
+
 namespace opc_bridge
 {
     public partial class OpcServerService : ServiceBase
@@ -26,6 +27,7 @@ namespace opc_bridge
         {
             InitializeComponent();
             Instance = this;
+            this.ServiceName = "OPC Server Service";
         }
 
         protected override void OnStart(string[] args)
@@ -154,43 +156,6 @@ namespace opc_bridge
             _opcThread.IsBackground = true;
             _opcThread.Start();
         }
-
-
-        //private T RunOnStaThread<T>(Func<T> func)
-        //{
-        //    T result = default;
-        //    Exception exception = null;
-
-        //    var thread = new Thread(() =>
-        //    {
-        //        try
-        //        {
-        //            result = func();
-        //        }
-        //        catch (Exception ex)
-        //        {
-        //            exception = ex;
-        //        }
-        //    });
-
-        //    thread.SetApartmentState(ApartmentState.STA);
-        //    thread.Start();
-        //    thread.Join();
-
-        //    if (exception != null)
-        //        throw exception;
-
-        //    return result;
-        //}
-
-        //private void RunOnStaThread(Action action)
-        //{
-        //    RunOnStaThread(() =>
-        //    {
-        //        action();
-        //        return true;
-        //    });
-        //}
 
     }
 }
