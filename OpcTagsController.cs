@@ -28,6 +28,8 @@ namespace opc_bridge
                     quality = result.Quality.ToString(),
                     timestamp = result.Timestamp
                 });
+
+
             }
 
             catch (Exception ex)
@@ -37,6 +39,18 @@ namespace opc_bridge
             }
 
         }
+
+        [HttpPost]
+        [Route("subscribe")]
+        public IHttpActionResult Subscribe([FromBody] string[] tagIds)
+        {
+
+            Service.SubscribeTags(tagIds);
+
+            return Ok($"Subscribed {tagIds.Length} tags");
+
+        }
+
 
         [HttpPost]
         [Route("")]

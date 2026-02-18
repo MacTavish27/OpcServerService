@@ -1,5 +1,8 @@
 ﻿using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Configuration;
+using System.IO;
 using System.Linq;
 using System.ServiceProcess;
 using System.Threading;
@@ -18,22 +21,39 @@ namespace opc_bridge
         private readonly BlockingCollection<Action> _opcQueue = new BlockingCollection<Action>();
         private Opc.Da.Server opcServer;
         private OpcCom.Factory factory;
+
+        private readonly List<Subscription> _subscriptions = new List<Subscription>();
+        private Subscription subscription;
         public static OpcServerService Instance { get; private set; }
 
 
-        private const string selectedHost = "localhost";
-        private const string opcServerName = "Matrikon.OPC.Simulation.1";
+        private readonly string selectedHost;
+        private readonly string opcServerName;
+        private readonly string baseAddress;
+
+        private DateTime _lastUpdateTime;
+        private const int _expectedInterval = 100;
+        private int _updateCount = 0;
+        private long totalLatencyTicks = 0;
+        private long latencySamples = 0;
+        private Timer latencyTimer;
+        private DateTime _fpsTime = DateTime.UtcNow;
+        private readonly object _subLock = new object();
         public OpcServerService()
         {
             InitializeComponent();
             Instance = this;
             this.ServiceName = "OPC Server Service";
+
+            selectedHost = ConfigurationManager.AppSettings["OpcHost"];
+            opcServerName = ConfigurationManager.AppSettings["OpcServerName"];
+            baseAddress = ConfigurationManager.AppSettings["BaseAddress"];
         }
 
         protected override void OnStart(string[] args)
         {
-            const string baseAddress = "http://*:8080";
             StartOpcThread();
+            StartLatencyMonitor();
 
             try
             {
@@ -56,10 +76,19 @@ namespace opc_bridge
 
         protected override void OnStop()
         {
-            HttpLogger.Log("Service is stopped");
+            HttpLogger.Log("Service stopped");
+            var wait = new ManualResetEvent(false);
+
+            _opcQueue.Add(() =>
+            {
+                RemoveAllSubscriptions();
+                DisconnectServer(opcServer);
+                wait.Set();
+            });
+
+            wait.WaitOne();
             _opcQueue.CompleteAdding();
             _opcThread.Join();
-            DisconnectServer(opcServer);
             _webApp?.Dispose();
         }
 
@@ -131,8 +160,7 @@ namespace opc_bridge
 
                 try
                 {
-                    if (!opcServer.IsConnected)
-                        ConnectToServer(opcServer, selectedHost, opcServerName);
+                    ConnectToServer(opcServer, selectedHost, opcServerName);
                 }
                 catch (Exception ex)
                 {
@@ -157,6 +185,172 @@ namespace opc_bridge
             _opcThread.Start();
         }
 
+        public void EnsureSubscription()
+        {
+            lock (_subLock)
+            {
+                if (subscription != null)
+                    return;
+
+                var state = new SubscriptionState
+                {
+                    Name = "MainSubscription",
+                    Active = true,
+                    UpdateRate = 100
+                };
+
+                subscription = (Subscription)opcServer.CreateSubscription(state);
+
+                subscription.DataChanged += OnDataChanged;
+
+                HttpLogger.Log("Subscription created");
+            }
+        }
+
+        public void SubscribeTags(string[] tagIds)
+        {
+
+            var wait = new ManualResetEvent(false);
+
+            _opcQueue.Add(() =>
+            {
+                try
+                {
+                    EnsureSubscription();
+
+                    var items = tagIds.Select(tag => new Item
+                    {
+                        ItemName = tag
+                    }).ToArray();
+
+
+                    subscription.AddItems(items);
+
+                    _subscriptions.Add(subscription);
+
+                    HttpLogger.Log($"Subscribed {items.Length} tags");
+
+                }
+                finally
+                {
+                    wait.Set();
+                }
+
+            });
+
+            wait.WaitOne();
+
+        }
+
+        private void RemoveAllSubscriptions()
+        {
+            foreach (var sub in _subscriptions)
+            {
+                try
+                {
+                    sub.DataChanged -= OnDataChanged;
+
+                    if (sub.Items != null)
+                    {
+                        sub.RemoveItems(sub.Items);
+
+                        sub.Dispose();
+                    }
+
+                }
+                catch (Exception ex)
+                {
+                    HttpLogger.Log("[ERROR] Subscription dispose failed: " + ex.Message);
+                }
+            }
+
+            _subscriptions.Clear();
+            HttpLogger.Log("All subscriptions removed");
+        }
+
+        private void OnDataChanged(object subscriptionHandle, object requestHandle, ItemValueResult[] values)
+        {
+            Interlocked.Add(ref _updateCount, values.Length);
+
+            var now = DateTime.UtcNow;
+
+            var receiveTime = DateTime.Now;
+
+            var actualInterval = (now - _lastUpdateTime).TotalMilliseconds;
+
+            var jitter = actualInterval - _expectedInterval;
+
+            if ((now - _fpsTime).TotalSeconds >= 1)
+            {
+                int fps = _updateCount;
+                _updateCount = 0;
+                _fpsTime = now;
+
+                LogFPS(fps);
+            }
+
+            LogPerformance(actualInterval, jitter);
+
+
+            _lastUpdateTime = now;
+
+
+            foreach (var item in values)
+            {
+                var latency = (receiveTime - item.Timestamp);
+                Interlocked.Add(ref totalLatencyTicks, latency.Ticks);
+                Interlocked.Increment(ref latencySamples);
+            }
+        }
+
+        private void StartLatencyMonitor()
+        {
+            latencyTimer = new Timer(_ =>
+            {
+                var samples = latencySamples;
+
+                if (samples == 0)
+                    return;
+
+                var avgTicks = totalLatencyTicks / samples;
+
+                var avgLatency = TimeSpan.FromTicks(avgTicks);
+
+                LatencyLog(avgLatency, samples);
+
+                totalLatencyTicks = 0;
+                latencySamples = 0;
+
+            }, null, 1000, 1000);
+        }
+
+        private void LogPerformance(double actual, double jitter)
+        {
+            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "performance.log");
+            string log =
+
+                $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | " +
+
+                $"Actual: {actual:F0} ms | " +
+
+                $"Jitter: {jitter:F0} ms";
+
+
+            File.AppendAllText(path, log + Environment.NewLine);
+        }
+
+        private void LogFPS(int fps)
+        {
+            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "fps.log");
+            string log = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | FPS: {fps}";
+            File.AppendAllText(path, log + Environment.NewLine);
+        }
+
+        private void LatencyLog(TimeSpan time, long samples)
+        {
+            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "latency.log");
+            string log = $"Average Latency: {time.TotalMilliseconds:F2} ms, " + $"Samples: {samples}";
+            File.AppendAllText(path, log + Environment.NewLine);
+        }
     }
 }
-
