@@ -58,5 +58,33 @@ namespace opc_bridge
             }
         }
 
+        public static void LogPerformance(double actual, double jitter)
+        {
+            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "performance.log");
+            string log =
+
+                $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | " +
+
+                $"Actual: {actual:F0} ms | " +
+
+                $"Jitter: {jitter:F0} ms";
+
+
+            File.AppendAllText(path, log + Environment.NewLine);
+        }
+
+        public static void LogFPS(int fps)
+        {
+            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "fps.log");
+            string log = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | FPS: {fps}";
+            File.AppendAllText(path, log + Environment.NewLine);
+        }
+
+        public static void LatencyLog(TimeSpan time, long samples)
+        {
+            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "latency.log");
+            string log = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | Average Latency: {time.TotalMilliseconds:F2} ms, " + $"Samples: {samples}";
+            File.AppendAllText(path, log + Environment.NewLine);
+        }
     }
 }

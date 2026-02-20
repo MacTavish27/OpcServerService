@@ -2,7 +2,6 @@
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Configuration;
-using System.IO;
 using System.Linq;
 using System.ServiceProcess;
 using System.Threading;
@@ -32,11 +31,11 @@ namespace opc_bridge
         private readonly string baseAddress;
 
         private DateTime _lastUpdateTime;
+        private Timer latencyTimer;
         private const int _expectedInterval = 100;
         private int _updateCount = 0;
         private long totalLatencyTicks = 0;
         private long latencySamples = 0;
-        private Timer latencyTimer;
         private DateTime _fpsTime = DateTime.UtcNow;
         private readonly object _subLock = new object();
         public OpcServerService()
@@ -255,6 +254,8 @@ namespace opc_bridge
                         sub.RemoveItems(sub.Items);
 
                         sub.Dispose();
+
+                        HttpLogger.Log("All subscriptions have been removed successfully");
                     }
 
                 }
@@ -265,7 +266,6 @@ namespace opc_bridge
             }
 
             _subscriptions.Clear();
-            HttpLogger.Log("All subscriptions removed");
         }
 
         private void OnDataChanged(object subscriptionHandle, object requestHandle, ItemValueResult[] values)
@@ -324,33 +324,5 @@ namespace opc_bridge
             }, null, 1000, 1000);
         }
 
-        private void LogPerformance(double actual, double jitter)
-        {
-            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "performance.log");
-            string log =
-
-                $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | " +
-
-                $"Actual: {actual:F0} ms | " +
-
-                $"Jitter: {jitter:F0} ms";
-
-
-            File.AppendAllText(path, log + Environment.NewLine);
-        }
-
-        private void LogFPS(int fps)
-        {
-            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "fps.log");
-            string log = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | FPS: {fps}";
-            File.AppendAllText(path, log + Environment.NewLine);
-        }
-
-        private void LatencyLog(TimeSpan time, long samples)
-        {
-            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "latency.log");
-            string log = $"Average Latency: {time.TotalMilliseconds:F2} ms, " + $"Samples: {samples}";
-            File.AppendAllText(path, log + Environment.NewLine);
-        }
     }
 }
