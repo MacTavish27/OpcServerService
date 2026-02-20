@@ -44,12 +44,16 @@ namespace opc_bridge
         }
         public static void DisconnectServer(Opc.Da.Server server)
         {
+            if (server == null)
+                return;
+
             try
             {
-                if (server != null && server.IsConnected)
+                if (server.IsConnected)
+                {
                     server.Disconnect();
-
-                HttpLogger.Log($"{server.Name} is successfully disconnected");
+                    HttpLogger.Log($"{server.Name} is successfully disconnected");
+                }
             }
 
             catch (Exception ex)
@@ -57,7 +61,6 @@ namespace opc_bridge
                 HttpLogger.Log("[ERROR] Error in disconnecting the server: " + ex.Message);
             }
         }
-
         public static void LogPerformance(double actual, double jitter)
         {
             string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "performance.log");
@@ -72,14 +75,12 @@ namespace opc_bridge
 
             File.AppendAllText(path, log + Environment.NewLine);
         }
-
         public static void LogFPS(int fps)
         {
             string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "fps.log");
             string log = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | FPS: {fps}";
             File.AppendAllText(path, log + Environment.NewLine);
         }
-
         public static void LatencyLog(TimeSpan time, long samples)
         {
             string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "latency.log");
